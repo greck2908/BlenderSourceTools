@@ -406,9 +406,6 @@ _data = {
 	'en': "Skipping vertex animations on Group \"{0}\", which could not be merged into a single DMX object due to its envelope. To fix this, either ensure that the entire Group has the same bone parent or remove all envelopes.",
 	'ru': "Пропуск вершинной анимации для группы «{0}», которую не удаётся слить в DMX-модель из-за огибающих. Проверьте, что у всей группы одна и та же кость-родитель или удалите все огибающие.",
 },
-'exporter_warn_source2names': {
-	'en': "Consider renaming \"{0}\": in Source 2, model names can contain only lower-case characters, digits, and/or underscores.",
-},
 'exporter_warn_unicode': {
 	'ja': "{0}「{1}」の名前はUnicode文字を含みます。間違ってコンパイルすることが可能です。",
 	'en': "Name of {0} \"{1}\" contains Unicode characters. This may not compile correctly!",
@@ -455,9 +452,6 @@ _data = {
 },
 'exporter_warn_sanitised_filename': {
 	'en': "Sanitised exportable name \"{0}\" to \"{1}\"",
-},
-'exporter_warn_correctiveshape_duplicate': {
-	'en': "Corrective shape key \"{0}\" has the same activation conditions ({1}) as \"{2}\". Skipping.",
 },
 'exporter_err_flexctrl_missing': {
 	'en': "No flex controller defined for shape {0}.",
@@ -715,12 +709,6 @@ _data = {
 	'en': "Import Animations",
 	'ru': "Импортировать анимации",
 },
-'importer_use_collections':{
-	'en': "Create Collections",	
-},
-'importer_use_collections_tip':{
-	'en': "Create a Blender collection for each imported mesh file. This retains the original file structure (important for DMX) and makes it easy to switch between LODs etc. with the number keys",
-},
 'importer_err_missingbones': {
 	'en': "{0} contains {1} bones not present in {2}. Check the console for a list.",
 	'ru': "{1} костей из {0} не найдены в {2}.",
@@ -732,9 +720,6 @@ _data = {
 'importer_bones_newarm': {
 	'ja': "アーマティアを生成",
 	'en': "Make New Armature",
-},
-'qc_warn_noarmature': {
-	'en': "Skipping {0}; no armature found.",
 },
 'exportstate_pattern_tip': {
 	'en': "Visible objects with this string in their name will be affected",
@@ -821,15 +806,6 @@ _data = {
 	'ja': "是正シェイプキーのドライバーを生成します",
 	'en': "Generate Corrective Shape Key Drivers",
 	'ru': "Создать драйверы для ключей форм коррекции",
-},
-'apply_drivers':{
-	'en': "Regenerate Shape Key Names From Drivers",
-},
-'apply_drivers_tip':{
-	'en': "Renames corrective shape keys so that each their names are a combination of the shape keys that control them (via Blender animation drivers)",
-},
-'apply_drivers_success':{
-	'en': "{0} shapes renamed.",
 },
 'vca_qcgen': {
 	'ja': "QCの抜粋を生成します",
