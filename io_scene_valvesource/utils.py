@@ -1,4 +1,4 @@
-﻿#  Copyright (c) 2014 Tom Edwards contact@steamreview.org
+#  Copyright (c) 2014 Tom Edwards contact@steamreview.org
 #
 # ##### BEGIN GPL LICENSE BLOCK #####
 #
@@ -20,7 +20,7 @@
 
 import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools
 from bpy.app.translations import pgettext
-from mathutils import *
+from mathutils import Matrix, Vector, Euler, Quaternion
 from math import *
 from . import datamodel
 
@@ -30,13 +30,13 @@ floatsize = struct.calcsize("f")
 rx90 = Matrix.Rotation(radians(90),4,'X')
 ry90 = Matrix.Rotation(radians(90),4,'Y')
 rz90 = Matrix.Rotation(radians(90),4,'Z')
-ryz90 = ry90 * rz90
+ryz90 = ry90 @ rz90
 
 rx90n = Matrix.Rotation(radians(-90),4,'X')
 ry90n = Matrix.Rotation(radians(-90),4,'Y')
 rz90n = Matrix.Rotation(radians(-90),4,'Z')
 
-mat_BlenderToSMD = ry90 * rz90 # for legacy support only
+mat_BlenderToSMD = ry90 @ rz90 # for legacy support only
 
 epsilon = Vector([0.0001] * 3)
 
@@ -73,8 +73,6 @@ dmx_versions_source1 = { # [encoding, format]
 'Portal 2':[5,18],
 'Counter-Strike Global Offensive':[5,18],
 'Source Filmmaker':[5,18],
-'Dota 2 Beta':[5,18],
-'Dota 2':[5,18],
 # and now back to 2/1 for some reason...
 'Half-Life 2':[2,1],
 'Source SDK Base 2013 Singleplayer':[2,1],
@@ -83,6 +81,7 @@ dmx_versions_source1 = { # [encoding, format]
 
 dmx_versions_source2 = {
 'dota2': ("Dota 2",[9,22]),
+'steamtours': ("SteamVR",[9,22]),
 }
 
 def print(*args, newline=True, debug_only=False):
@@ -91,7 +90,7 @@ def print(*args, newline=True, debug_only=False):
 
 def get_id(id, format_string = False, data = False):
 	out = p_cache.ids[id]
-	if format_string or (data and bpy.context.user_preferences.system.use_translate_new_dataname):
+	if format_string or (data and bpy.context.preferences.view.use_translate_new_dataname):
 		return pgettext(out)
 	else:
 		return out
@@ -196,21 +195,18 @@ vertex_maps = ["valvesource_vertex_paint", "valvesource_vertex_blend", "valvesou
 def getDmxKeywords(format_version):
 	if format_version >= 22:
 		return {
-		  'pos': "position$0", 'norm': "normal$0", 'texco':"texcoord$0", 'wrinkle':"wrinkle$0",
-		  'balance':"balance$0", 'weight':"blendweights$0", 'weight_indices':"blendindices$0",
-		  'valvesource_vertex_blend':"VertexPaintBlendParams$0",
-		  'valvesource_vertex_blend1':"VertexPaintBlendParams1$0",
-		  'valvesource_vertex_paint':"VertexPaintTintColor$0"
+		  'pos': "position$0", 'norm': "normal$0", 'wrinkle':"wrinkle$0",
+		  'balance':"balance$0", 'weight':"blendweights$0", 'weight_indices':"blendindices$0"
 		  }
 	else:
-		return { 'pos': "positions", 'norm': "normals", 'texco':"textureCoordinates", 'wrinkle':"wrinkle",
+		return { 'pos': "positions", 'norm': "normals", 'wrinkle':"wrinkle",
 		  'balance':"balance", 'weight':"jointWeights", 'weight_indices':"jointIndices" }
 
 def count_exports(context):
 	num = 0
 	for exportable in context.scene.vs.export_list:
 		id = exportable.get_id()
-		if id and id.vs.export and (type(id) != bpy.types.Group or not id.vs.mute):
+		if id and id.vs.export and (type(id) != bpy.types.Collection or not id.vs.mute):
 			num += 1
 	return num
 
@@ -263,7 +259,10 @@ def PrintVer(in_seq,sep="."):
 		rlist.reverse()
 		out = ""
 		for val in rlist:
-			if int(val) == 0 and not len(out):
+			try:
+				if int(val) == 0 and not len(out):
+					continue
+			except ValueError:
 				continue
 			out = "{}{}{}".format(str(val),sep if sep else "",out) # NB last value!
 		if out.count(sep) == 1:
@@ -298,7 +297,9 @@ def MakeObjectIcon(object,prefix=None,suffix=None):
 	return out
 
 def GetCustomPropName(data,prop, suffix=""):
-	return "".join([pgettext(getattr(type(data), prop)[1]['name']), suffix])
+	'''Looks up the name of the bpy property associated with the given property name'''
+	import typing
+	return "".join([pgettext(typing.get_type_hints(type(data))[prop][1]['name']), suffix])
 
 def getObExportName(ob):
 	return ob.name
@@ -312,8 +313,8 @@ def removeObject(obj):
 			if child.type == 'EMPTY':
 				removeObject(child)
 
-	if obj.name in bpy.context.scene.objects:
-		bpy.context.scene.objects.unlink(obj)
+	for collection in obj.users_collection:
+		collection.objects.unlink(obj)
 	if obj.users == 0:
 		if type == 'ARMATURE' and obj.animation_data:
 			obj.animation_data.action = None # avoid horrible Blender bug that leads to actions being deleted
@@ -328,17 +329,17 @@ def removeObject(obj):
 	return None if d else type
 	
 def select_only(ob):
-	bpy.context.scene.objects.active = ob
+	bpy.context.view_layer.objects.active = ob
 	bpy.ops.object.mode_set(mode='OBJECT')
 	if bpy.context.selected_objects:
 		bpy.ops.object.select_all(action='DESELECT')
-	ob.select = True
+	ob.select_set(True)
 
 def hasShapes(id, valid_only = True):
 	def _test(id_):
 		return id_.type in shape_types and id_.data.shape_keys and len(id_.data.shape_keys.key_blocks)
 	
-	if type(id) == bpy.types.Group:
+	if type(id) == bpy.types.Collection:
 		for _ in [ob for ob in id.objects if ob.vs.export and (not valid_only or ob in p_cache.validObs) and _test(ob)]:
 			return True
 	else:
@@ -349,7 +350,7 @@ def countShapes(*objects):
 	num_correctives = 0
 	flattened_objects = []
 	for ob in objects:
-		if type(ob) == bpy.types.Group:
+		if type(ob) == bpy.types.Collection:
 			flattened_objects.extend(ob.objects)
 		elif hasattr(ob,'__iter__'):
 			flattened_objects.extend(ob)
@@ -365,7 +366,7 @@ def hasCurves(id):
 	def _test(id_):
 		return id_.type in ['CURVE','SURFACE','FONT']
 
-	if type(id) == bpy.types.Group:
+	if type(id) == bpy.types.Collection:
 		for _ in [ob for ob in id.objects if ob.vs.export and ob in p_cache.validObs and _test(ob)]:
 			return True
 	else:
@@ -379,7 +380,7 @@ def valvesource_vertex_maps(id):
 		else:
 			return []
 
-	if type(id) == bpy.types.Group:
+	if type(id) == bpy.types.Collection:
 		return set(itertools.chain(*(test(ob) for ob in id.objects)))
 	elif id.type == 'MESH':
 		return test(id)
@@ -398,9 +399,9 @@ def getExportablesForId(id):
 	out = set()
 	for exportable in bpy.context.scene.vs.export_list:
 		if exportable.get_id() == id: return [exportable]
-		if exportable.ob_type == 'GROUP':
-			group = exportable.get_id()
-			if not group.vs.mute and id.name in group.objects:
+		if exportable.ob_type == 'COLLECTION':
+			collection = exportable.get_id()
+			if not collection.vs.mute and id.name in collection.objects:
 				out.add(exportable)
 	return list(out)
 
@@ -423,7 +424,7 @@ def make_export_list():
 	if len(p_cache.validObs):
 		ungrouped_objects = p_cache.validObs.copy()
 		
-		groups_sorted = bpy.data.groups[:]
+		groups_sorted = bpy.data.collections[:]
 		groups_sorted.sort(key=lambda g: g.name.lower())
 		
 		scene_groups = []
@@ -443,7 +444,8 @@ def make_export_list():
 			else:
 				i.name = makeDisplayName(g)
 			i.item_name = g.name
-			i.icon = i.ob_type = "GROUP"
+			i.ob_type = "COLLECTION"
+			i.icon = "GROUP"
 			
 		
 		ungrouped_objects = list(ungrouped_objects)
@@ -475,43 +477,38 @@ def make_export_list():
 				i.icon = i_icon
 				i.item_name = ob.name
 
-from bpy.app.handlers import scene_update_post, persistent
-need_export_refresh = True
+from bpy.app.handlers import depsgraph_update_post,persistent
 last_export_refresh = 0
 
 @persistent
-def scene_update(scene, immediate=False):
-	global need_export_refresh
+def scene_update(scene, immediate = False):
 	global last_export_refresh
 		
-	if not hasattr(scene,"vs") or not (immediate or need_export_refresh or bpy.data.groups.is_updated or bpy.data.objects.is_updated or bpy.data.scenes.is_updated or bpy.data.actions.is_updated or bpy.data.groups.is_updated):
+	if not hasattr(scene,"vs"):
 		return
 
 	# "real" objects
 	p_cache.validObs = set([ob for ob in scene.objects if ob.type in exportable_types
-						 and not (ob.type == 'CURVE' and ob.data.bevel_depth == 0 and ob.data.extrude == 0)
-						 and not (scene.vs.layer_filter and len([i for i in range(20) if ob.layers[i] and scene.layers[i]]) == 0)])
+						 and not (ob.type == 'CURVE' and ob.data.bevel_depth == 0 and ob.data.extrude == 0)])
 
 	# dupli groups etc.
-	p_cache.validObs = p_cache.validObs.union(set([ob for ob in scene.objects if (ob.type == 'MESH' and ob.dupli_type in ['VERTS','FACES'] and ob.children) or (ob.dupli_type == 'GROUP' and ob.dupli_group)]))
+	#p_cache.validObs = p_cache.validObs.union(set([ob for ob in scene.objects if (ob.type == 'MESH' and ob.dupli_type in ['VERTS','FACES'] and ob.children) or (ob.dupli_type == 'GROUP' and ob.dupli_group)]))
 	
 	p_cache.validObs_version += 1
 
-	need_export_refresh = True
 	now = time.time()
 
 	if immediate or now - last_export_refresh > 0.25:
 		make_export_list()
-		need_export_refresh = False
 		last_export_refresh = now
 
 def hook_scene_update():
-	if not scene_update in scene_update_post:
-		scene_update_post.append(scene_update)
+	if not scene_update in depsgraph_update_post:
+		depsgraph_update_post.append(scene_update)
 
 def unhook_scene_update():
-	if scene_update in scene_update_post:
-		scene_update_post.remove(scene_update)
+	if scene_update in depsgraph_update_post:
+		depsgraph_update_post.remove(scene_update)
 
 class Logger:
 	def __init__(self):
@@ -533,11 +530,11 @@ class Logger:
 		l = menu.layout
 		if len(self.log_errors):
 			for msg in self.log_errors:
-				l.label("{}: {}".format(pgettext("Error").upper(), msg))
+				l.label(text="{}: {}".format(pgettext("Error").upper(), msg))
 			l.separator()
 		if len(self.log_warnings):
 			for msg in self.log_warnings:
-				l.label("{}: {}".format(pgettext("Warning").upper(), msg))
+				l.label(text="{}: {}".format(pgettext("Warning").upper(), msg))
 
 	def elapsed_time(self):
 		return round(time.time() - self.startTime, 1)
@@ -648,8 +645,7 @@ class Cache:
 		cls.validObs.clear()
 
 global p_cache
-if not "p_cache" in globals():
-	p_cache = Cache() # package cached data
+p_cache = globals().get("p_cache", Cache()) # package cached data
 
 class SMD_OT_LaunchHLMV(bpy.types.Operator):
 	bl_idname = "smd.launch_hlmv"
@@ -657,7 +653,7 @@ class SMD_OT_LaunchHLMV(bpy.types.Operator):
 	bl_description = get_id("launch_hlmv_tip")
 
 	@classmethod
-	def poll(self,context):
+	def poll(cls,context):
 		return bool(context.scene.vs.engine_path)
 		
 	def execute(self,context):
@@ -676,7 +672,7 @@ class SMD_OT_Toggle_Group_Export_State(bpy.types.Operator):
 	action = bpy.props.EnumProperty(name="Action",items= ( ('TOGGLE', "Toggle", ""), ('ENABLE', "Enable", ""), ('DISABLE', "Disable", "")),default='TOGGLE')
 	
 	@classmethod
-	def poll(self,context):
+	def poll(cls,context):
 		return len(context.visible_objects)
 	
 	def invoke(self, context, event):
